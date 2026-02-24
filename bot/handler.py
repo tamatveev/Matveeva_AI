@@ -4,23 +4,29 @@ import uuid
 
 from aiogram import Dispatcher, types
 from aiogram.filters import CommandStart
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.config import Config
 from bot.llm_client import LLMClient
 from bot.prompt import Prompt
+from bot.sheets_client import SheetsClient
 
 logger = logging.getLogger(__name__)
 
 GREETING = "Привет! Я бот-ассистент. Чем могу помочь?"
 
 _BUTTONS_RE = re.compile(r"\[buttons]\s*\n(.*?)\n\s*\[/buttons]", re.DOTALL)
+_EXAMPLE_PREFIX = "example:"
 
 
 class Handler:
-    def __init__(self, config: Config, llm_client: LLMClient, prompt: Prompt) -> None:
+    def __init__(
+        self, config: Config, llm_client: LLMClient,
+        prompt: Prompt, sheets_client: SheetsClient,
+    ) -> None:
         self._llm_client = llm_client
         self._prompt = prompt
+        self._sheets_client = sheets_client
         self._max_history = config.max_history_messages
         self._histories: dict[int, list[dict[str, str]]] = {}
         self._button_map: dict[str, str] = {}
@@ -44,12 +50,20 @@ class Handler:
     async def _on_callback(self, callback: types.CallbackQuery) -> None:
         if not callback.data or not callback.message:
             return
-        text = self._button_map.pop(callback.data, callback.data)
+        raw = self._button_map.pop(callback.data, callback.data)
         chat_id = callback.message.chat.id
-        logger.info("chat_id=%s — кнопка: %s", chat_id, text)
         await callback.answer()
-        await callback.message.answer(f"👆 {text}")
-        await self._handle_user_text(chat_id, text, callback.message)
+
+        if raw.startswith(_EXAMPLE_PREFIX):
+            drive_url = raw[len(_EXAMPLE_PREFIX):]
+            logger.info("chat_id=%s — запрос примеров", chat_id)
+            await callback.message.answer("👆 Показать примеры работ")
+            await self._send_examples(callback.message, drive_url)
+            return
+
+        logger.info("chat_id=%s — кнопка: %s", chat_id, raw)
+        await callback.message.answer(f"👆 {raw}")
+        await self._handle_user_text(chat_id, raw, callback.message)
 
     async def _handle_user_text(
         self, chat_id: int, text: str, target: types.Message,
@@ -65,8 +79,9 @@ class Handler:
         history.append({"role": "assistant", "content": answer})
         self._trim_history(chat_id)
 
-        body, buttons = self._parse_buttons(answer)
-        await target.answer(body, reply_markup=buttons)
+        body, keyboard = self._parse_buttons(answer)
+        keyboard = self._maybe_add_example_button(keyboard, text)
+        await target.answer(body, reply_markup=keyboard)
 
     def _parse_buttons(self, text: str) -> tuple[str, InlineKeyboardMarkup | None]:
         match = _BUTTONS_RE.search(text)
@@ -86,6 +101,31 @@ class Handler:
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         return body or text, keyboard
+
+    def _maybe_add_example_button(
+        self, keyboard: InlineKeyboardMarkup | None, user_text: str,
+    ) -> InlineKeyboardMarkup | None:
+        url = self._sheets_client.find_example_url(user_text)
+        if not url:
+            return keyboard
+
+        key = uuid.uuid4().hex[:12]
+        self._button_map[key] = f"{_EXAMPLE_PREFIX}{url}"
+        example_btn = [InlineKeyboardButton(text="📸 Показать примеры работ", callback_data=key)]
+
+        if keyboard:
+            keyboard.inline_keyboard.append(example_btn)
+            return keyboard
+        return InlineKeyboardMarkup(inline_keyboard=[example_btn])
+
+    async def _send_examples(self, target: types.Message, drive_url: str) -> None:
+        images = self._sheets_client.download_images(drive_url)
+        if not images:
+            await target.answer("К сожалению, не удалось загрузить примеры.")
+            return
+        for i, data in enumerate(images):
+            photo = BufferedInputFile(data, filename=f"example_{i}.jpg")
+            await target.answer_photo(photo)
 
     def _trim_history(self, chat_id: int) -> None:
         history = self._histories.get(chat_id)

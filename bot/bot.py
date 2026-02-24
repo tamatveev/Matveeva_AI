@@ -25,7 +25,7 @@ class Bot:
         prompt = Prompt(system_prompt, services_text)
         self._sheets_client = sheets_client
 
-        handler = Handler(config, llm_client, prompt)
+        handler = Handler(config, llm_client, prompt, sheets_client)
         handler.register(self._dp)
 
     async def start(self) -> None:
