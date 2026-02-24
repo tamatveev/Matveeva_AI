@@ -8,6 +8,7 @@ from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboar
 
 from bot.config import Config
 from bot.llm_client import LLMClient
+from bot.order_writer import OrderWriter
 from bot.prompt import Prompt
 from bot.sheets_client import SheetsClient
 
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 GREETING = "Привет! Я бот-ассистент. Чем могу помочь?"
 
 _BUTTONS_RE = re.compile(r"\[buttons]\s*\n(.*?)\n\s*\[/buttons]", re.DOTALL)
+_ORDER_RE = re.compile(r"\[order]\s*\n(.*?)\n\s*\[/order]", re.DOTALL)
 _EXAMPLE_PREFIX = "example:"
 
 
@@ -23,10 +25,12 @@ class Handler:
     def __init__(
         self, config: Config, llm_client: LLMClient,
         prompt: Prompt, sheets_client: SheetsClient,
+        order_writer: OrderWriter,
     ) -> None:
         self._llm_client = llm_client
         self._prompt = prompt
         self._sheets_client = sheets_client
+        self._order_writer = order_writer
         self._max_history = config.max_history_messages
         self._histories: dict[int, list[dict[str, str]]] = {}
         self._button_map: dict[str, str] = {}
@@ -79,7 +83,9 @@ class Handler:
         history.append({"role": "assistant", "content": answer})
         self._trim_history(chat_id)
 
-        body, keyboard = self._parse_buttons(answer)
+        await self._try_save_order(answer, target)
+        clean_answer = _ORDER_RE.sub("", answer).strip()
+        body, keyboard = self._parse_buttons(clean_answer)
         keyboard = self._maybe_add_example_button(keyboard, text)
         await target.answer(body, reply_markup=keyboard)
 
@@ -117,6 +123,31 @@ class Handler:
             keyboard.inline_keyboard.append(example_btn)
             return keyboard
         return InlineKeyboardMarkup(inline_keyboard=[example_btn])
+
+    async def _try_save_order(self, answer: str, target: types.Message) -> None:
+        match = _ORDER_RE.search(answer)
+        if not match:
+            return
+
+        fields: dict[str, str] = {}
+        for line in match.group(1).splitlines():
+            if ":" in line:
+                key, _, value = line.partition(":")
+                fields[key.strip().lower()] = value.strip()
+
+        client_name = fields.get("имя", "")
+        service = fields.get("услуга", "")
+        email = fields.get("почта", "")
+        comment = fields.get("комментарий", "")
+        telegram_id = target.chat.username or ""
+        chat_id = target.chat.id
+
+        try:
+            self._order_writer.write(client_name, email, service, comment, telegram_id, chat_id)
+            logger.info("chat_id=%s — заявка сохранена", target.chat.id)
+        except Exception:
+            logger.exception("chat_id=%s — ошибка записи заявки", target.chat.id)
+            await target.answer("Произошла ошибка при сохранении заявки. Попробуйте позже.")
 
     async def _send_examples(self, target: types.Message, drive_url: str) -> None:
         images = self._sheets_client.download_images(drive_url)

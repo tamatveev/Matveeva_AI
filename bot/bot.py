@@ -5,6 +5,7 @@ from aiogram import Bot as AiogramBot, Dispatcher
 from bot.config import Config
 from bot.handler import Handler
 from bot.llm_client import LLMClient
+from bot.order_writer import OrderWriter
 from bot.prompt import Prompt
 from bot.sheets_client import SheetsClient
 
@@ -25,7 +26,8 @@ class Bot:
         prompt = Prompt(system_prompt, services_text)
         self._sheets_client = sheets_client
 
-        handler = Handler(config, llm_client, prompt, sheets_client)
+        order_writer = OrderWriter(config)
+        handler = Handler(config, llm_client, prompt, sheets_client, order_writer)
         handler.register(self._dp)
 
     async def start(self) -> None:
