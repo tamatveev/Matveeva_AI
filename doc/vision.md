@@ -8,7 +8,7 @@
 | Управление зависимостями | uv |
 | Telegram Bot API | aiogram 3.x (polling) |
 | Работа с LLM | openai (Python-клиент) через OpenRouter |
-| Google Sheets / Drive | gspread + google-auth (OAuth2, обычный Google-аккаунт) |
+| Google Sheets / Drive | gspread + google-auth (Service Account) |
 | Контейнеризация | Docker |
 | Автоматизация сборки/запуска | Make |
 | Логгирование | стандартный logging (Python) |
@@ -149,7 +149,7 @@ Handler парсит блок `[buttons]...[/buttons]` и формирует inl
 
 ## 7. Работа с Google Drive
 
-**Авторизация:** OAuth2 с обычным Google-аккаунтом. Одноразовая авторизация — токен сохраняется в файл `token.json` и используется при последующих запусках. Файл `credentials.json` (OAuth-клиент) не коммитится в git.
+**Авторизация:** Service Account. Ключ сервисного аккаунта хранится в файле `service_account.json` в корне проекта (не коммитится в git). Google Sheets и папка на Google Drive расшариваются на email сервисного аккаунта. Никакого интерактивного OAuth-флоу не требуется.
 
 **Google Sheets (gspread):**
 
@@ -234,18 +234,17 @@ flowchart TD
 
 Файл `.env.example` с пустыми значениями коммитится в git. Файл `.env` с реальными значениями — нет.
 
-### Файлы секретов Google
+### Файл секретов Google
 
 | Файл | Описание |
 |---|---|
-| `credentials.json` | OAuth-клиент Google (скачивается из Google Cloud Console) |
-| `token.json` | Токен авторизации (создаётся автоматически после первой авторизации) |
+| `service_account.json` | Ключ сервисного аккаунта Google (скачивается из Google Cloud Console) |
 
-Пути захардкожены в `Config` — файлы всегда лежат в корне проекта.
+Путь захардкожен в `Config` — файл всегда лежит в корне проекта.
 
 ### .gitignore
 
-Не коммитятся: `.env`, `credentials.json`, `token.json`.
+Не коммитятся: `.env`, `service_account.json`.
 
 ## 10. Подход к логгированию
 
@@ -279,12 +278,12 @@ flowchart TD
 - Один `Dockerfile`, один контейнер.
 - Базовый образ: `python:3.12-slim`.
 - Зависимости ставятся через `uv` внутри контейнера.
-- `.env`, `credentials.json`, `token.json` прокидываются через volume или `--env-file`.
+- `.env` и `service_account.json` прокидываются через volume или `--env-file`.
 
 ### Деплой на удалённый сервер
 
 На MVP — ручной деплой:
 
 1. Склонировать репозиторий на сервер.
-2. Положить `.env`, `credentials.json`, `token.json`.
+2. Положить `.env`, `service_account.json`.
 3. `make up` — бот запущен.
