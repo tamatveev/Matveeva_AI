@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 class Bot:
     def __init__(self, config: Config) -> None:
         self._bot = AiogramBot(token=config.telegram_bot_token)
+        self._bot.session.timeout = 300
         self._dp = Dispatcher()
 
         sheets_client = SheetsClient(config)

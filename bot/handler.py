@@ -4,7 +4,12 @@ import uuid
 
 from aiogram import Dispatcher, types
 from aiogram.filters import CommandStart
-from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    BufferedInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+)
 
 from bot.config import Config
 from bot.llm_client import LLMClient
@@ -19,6 +24,7 @@ GREETING = "Привет! Я бот-ассистент. Чем могу помо
 _BUTTONS_RE = re.compile(r"\[buttons]\s*\n(.*?)\n\s*\[/buttons]", re.DOTALL)
 _ORDER_RE = re.compile(r"\[order]\s*\n(.*?)\n\s*\[/order]", re.DOTALL)
 _EXAMPLE_PREFIX = "example:"
+_BEST_EXAMPLE = "best_example"
 
 
 class Handler:
@@ -31,6 +37,7 @@ class Handler:
         self._prompt = prompt
         self._sheets_client = sheets_client
         self._order_writer = order_writer
+        self._best_example_url = config.best_example_url
         self._max_history = config.max_history_messages
         self._histories: dict[int, list[dict[str, str]]] = {}
         self._button_map: dict[str, str] = {}
@@ -58,11 +65,19 @@ class Handler:
         chat_id = callback.message.chat.id
         await callback.answer()
 
+        if raw == _BEST_EXAMPLE:
+            logger.info("chat_id=%s — запрос лучшего примера", chat_id)
+            await callback.message.answer("👆 Примеры работ")
+            await self._send_examples(callback.message, self._best_example_url)
+            await self._handle_user_text(chat_id, "Примеры работ", callback.message)
+            return
+
         if raw.startswith(_EXAMPLE_PREFIX):
             drive_url = raw[len(_EXAMPLE_PREFIX):]
             logger.info("chat_id=%s — запрос примеров", chat_id)
             await callback.message.answer("👆 Показать примеры работ")
             await self._send_examples(callback.message, drive_url)
+            await self._handle_user_text(chat_id, "Показать примеры работ", callback.message)
             return
 
         logger.info("chat_id=%s — кнопка: %s", chat_id, raw)
@@ -102,8 +117,12 @@ class Handler:
         buttons: list[list[InlineKeyboardButton]] = []
         for label in lines:
             key = uuid.uuid4().hex[:12]
-            self._button_map[key] = label
-            buttons.append([InlineKeyboardButton(text=label, callback_data=key)])
+            if label.lower().strip() in ("примеры работ", "посмотреть примеры работ"):
+                self._button_map[key] = _BEST_EXAMPLE
+                buttons.append([InlineKeyboardButton(text=f"📸 {label}", callback_data=key)])
+            else:
+                self._button_map[key] = label
+                buttons.append([InlineKeyboardButton(text=label, callback_data=key)])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         return body or text, keyboard
@@ -150,13 +169,25 @@ class Handler:
             await target.answer("Произошла ошибка при сохранении заявки. Попробуйте позже.")
 
     async def _send_examples(self, target: types.Message, drive_url: str) -> None:
-        images = self._sheets_client.download_images(drive_url)
-        if not images:
+        description, images = self._sheets_client.download_examples(drive_url)
+        if not description and not images:
             await target.answer("К сожалению, не удалось загрузить примеры.")
             return
-        for i, data in enumerate(images):
-            photo = BufferedInputFile(data, filename=f"example_{i}.jpg")
-            await target.answer_photo(photo)
+        if not images and description:
+            await target.answer(description)
+            return
+        if len(images) == 1:
+            photo = BufferedInputFile(images[0], filename="example.jpg")
+            await target.answer_photo(photo, caption=description or None)
+            return
+        media = [
+            InputMediaPhoto(
+                media=BufferedInputFile(data, filename=f"example_{i}.jpg"),
+                caption=description if i == 0 else None,
+            )
+            for i, data in enumerate(images)
+        ]
+        await target.answer_media_group(media)
 
     def _trim_history(self, chat_id: int) -> None:
         history = self._histories.get(chat_id)

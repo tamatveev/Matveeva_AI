@@ -77,43 +77,55 @@ class SheetsClient:
                 return url
         return None
 
-    def download_images(self, drive_url: str) -> list[bytes]:
+    def download_examples(self, drive_url: str) -> tuple[str, list[bytes]]:
         match = _DRIVE_ID_RE.search(drive_url)
         if not match:
             logger.warning("Не удалось извлечь ID из URL: %s", drive_url)
-            return []
+            return "", []
 
         drive_id = match.group(1)
         is_folder = "/folders/" in drive_url
 
         if is_folder:
-            return self._download_folder_images(drive_id)
-        return self._download_single_image(drive_id)
+            return self._download_folder_examples(drive_id)
 
-    def _download_folder_images(self, folder_id: str) -> list[bytes]:
+        data = self._download_file(drive_id)
+        return "", [data] if data else []
+
+    def _download_folder_examples(self, folder_id: str) -> tuple[str, list[bytes]]:
         list_url = (
             f"https://www.googleapis.com/drive/v3/files"
-            f"?q='{folder_id}'+in+parents+and+mimeType+contains+'image'"
-            f"&fields=files(id,name)"
+            f"?q='{folder_id}'+in+parents"
+            f"&fields=files(id,name,mimeType)"
         )
         response = self._authed_session.get(list_url)
         if response.status_code != 200:
             logger.warning("Не удалось получить список файлов папки: %s", response.status_code)
-            return []
+            return "", []
 
         files = response.json().get("files", [])
-        logger.info("В папке найдено картинок: %d", len(files))
 
+        description = ""
         images: list[bytes] = []
         for f in files:
-            data = self._download_file(f["id"])
-            if data:
-                images.append(data)
-        return images
+            mime = f.get("mimeType", "")
+            if mime == "application/vnd.google-apps.document":
+                description = self._export_doc_as_text(f["id"])
+            elif mime.startswith("image/"):
+                data = self._download_file(f["id"])
+                if data:
+                    images.append(data)
 
-    def _download_single_image(self, file_id: str) -> list[bytes]:
-        data = self._download_file(file_id)
-        return [data] if data else []
+        logger.info("В папке: описание=%s, картинок=%d", bool(description), len(images))
+        return description, images
+
+    def _export_doc_as_text(self, doc_id: str) -> str:
+        url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
+        response = self._authed_session.get(url)
+        if response.status_code != 200:
+            logger.warning("Не удалось экспортировать документ %s: %s", doc_id, response.status_code)
+            return ""
+        return response.text.strip()
 
     def _download_file(self, file_id: str) -> bytes | None:
         url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"

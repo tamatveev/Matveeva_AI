@@ -21,6 +21,7 @@ class Config:
         self.google_sheets_services_url: str = self._require("GOOGLE_SHEETS_SERVICES_URL")
         self.google_doc_prompt_url: str = self._require("GOOGLE_DOC_PROMPT_URL")
         self.google_sheets_orders_url: str = self._require("GOOGLE_SHEETS_ORDERS_URL")
+        self.best_example_url: str = self._require("BEST_EXAMPLE_URL")
         self.service_account_path: Path = Path(self._require("GOOGLE_APPLICATION_CREDENTIALS"))
         self.log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
