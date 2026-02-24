@@ -15,6 +15,10 @@ class Config:
         load_dotenv(_ENV_PATH)
 
         self.telegram_bot_token: str = self._require("TELEGRAM_BOT_TOKEN")
+        self.openrouter_api_key: str = self._require("OPENROUTER_API_KEY")
+        self.llm_model: str = self._require("LLM_MODEL")
+        self.system_prompt: str = self._require("SYSTEM_PROMPT")
+        self.max_history_messages: int = int(os.getenv("MAX_HISTORY_MESSAGES", "20"))
         self.log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
     @staticmethod
