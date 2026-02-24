@@ -1,5 +1,6 @@
 import logging
 import re
+import uuid
 
 from aiogram import Dispatcher, types
 from aiogram.filters import CommandStart
@@ -22,6 +23,7 @@ class Handler:
         self._prompt = prompt
         self._max_history = config.max_history_messages
         self._histories: dict[int, list[dict[str, str]]] = {}
+        self._button_map: dict[str, str] = {}
 
     def register(self, dp: Dispatcher) -> None:
         dp.message.register(self._on_start, CommandStart())
@@ -42,8 +44,8 @@ class Handler:
     async def _on_callback(self, callback: types.CallbackQuery) -> None:
         if not callback.data or not callback.message:
             return
+        text = self._button_map.pop(callback.data, callback.data)
         chat_id = callback.message.chat.id
-        text = callback.data
         logger.info("chat_id=%s — кнопка: %s", chat_id, text)
         await callback.answer()
         await callback.message.answer(f"👆 {text}")
@@ -66,8 +68,7 @@ class Handler:
         body, buttons = self._parse_buttons(answer)
         await target.answer(body, reply_markup=buttons)
 
-    @staticmethod
-    def _parse_buttons(text: str) -> tuple[str, InlineKeyboardMarkup | None]:
+    def _parse_buttons(self, text: str) -> tuple[str, InlineKeyboardMarkup | None]:
         match = _BUTTONS_RE.search(text)
         if not match:
             return text, None
@@ -77,12 +78,13 @@ class Handler:
         if not lines:
             return body or text, None
 
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text=label, callback_data=label)]
-                for label in lines
-            ],
-        )
+        buttons: list[list[InlineKeyboardButton]] = []
+        for label in lines:
+            key = uuid.uuid4().hex[:12]
+            self._button_map[key] = label
+            buttons.append([InlineKeyboardButton(text=label, callback_data=key)])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         return body or text, keyboard
 
     def _trim_history(self, chat_id: int) -> None:

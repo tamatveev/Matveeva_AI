@@ -6,6 +6,7 @@ from bot.config import Config
 from bot.handler import Handler
 from bot.llm_client import LLMClient
 from bot.prompt import Prompt
+from bot.sheets_client import SheetsClient
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,15 @@ class Bot:
         self._bot = AiogramBot(token=config.telegram_bot_token)
         self._dp = Dispatcher()
 
+        sheets_client = SheetsClient(config)
+        sheets_client.load_services()
+        system_prompt = sheets_client.load_prompt()
+
         llm_client = LLMClient(config)
-        prompt = Prompt(config)
+        services_text = sheets_client.format_services_for_prompt()
+        prompt = Prompt(system_prompt, services_text)
+        self._sheets_client = sheets_client
+
         handler = Handler(config, llm_client, prompt)
         handler.register(self._dp)
 

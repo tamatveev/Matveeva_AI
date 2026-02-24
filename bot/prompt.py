@@ -1,7 +1,5 @@
 import logging
 
-from bot.config import Config
-
 logger = logging.getLogger(__name__)
 
 BUTTONS_INSTRUCTION = """
@@ -18,9 +16,14 @@ BUTTONS_INSTRUCTION = """
 
 
 class Prompt:
-    def __init__(self, config: Config) -> None:
-        self._system_prompt = config.system_prompt
+    def __init__(self, system_prompt: str, services_text: str = "") -> None:
+        self._system_prompt = system_prompt
+        self._services_text = services_text
 
     def build(self, history: list[dict[str, str]]) -> list[dict[str, str]]:
-        full_system = f"{self._system_prompt}\n\n{BUTTONS_INSTRUCTION}"
+        parts = [self._system_prompt]
+        if self._services_text:
+            parts.append(self._services_text)
+        parts.append(BUTTONS_INSTRUCTION)
+        full_system = "\n\n".join(parts)
         return [{"role": "system", "content": full_system}, *history]
