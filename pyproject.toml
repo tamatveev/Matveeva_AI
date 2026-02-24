@@ -1,0 +1,15 @@
+[project]
+name = "matveeva-ai"
+version = "0.1.0"
+description = "Telegram LLM-ассистент"
+requires-python = ">=3.12"
+dependencies = [
+    "aiogram>=3.16",
+    "python-dotenv>=1.1",
+    "openai>=1.61",
+    "gspread>=6.1",
+    "google-auth>=2.38",
+]
+
+[project.scripts]
+bot = "bot.main:main"
