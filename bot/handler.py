@@ -19,7 +19,7 @@ from bot.sheets_client import SheetsClient
 
 logger = logging.getLogger(__name__)
 
-GREETING = "Привет! Я бот-ассистент. Чем могу помочь?"
+GREETING = "Привет! Я бот-ассистент нейро-фотографа Анастасии Матвеевой. Чем могу помочь?"
 
 _BUTTONS_RE = re.compile(r"\[buttons]\s*\n(.*?)\n\s*\[/buttons]", re.DOTALL)
 _ORDER_RE = re.compile(r"\[order]\s*\n(.*?)\n\s*\[/order]", re.DOTALL)
