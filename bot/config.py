@@ -1,5 +1,6 @@
 import logging
 import os
+import tempfile
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -22,8 +23,21 @@ class Config:
         self.google_doc_prompt_url: str = self._require("GOOGLE_DOC_PROMPT_URL")
         self.google_sheets_orders_url: str = self._require("GOOGLE_SHEETS_ORDERS_URL")
         self.best_example_url: str = self._require("BEST_EXAMPLE_URL")
-        self.service_account_path: Path = Path(self._require("GOOGLE_APPLICATION_CREDENTIALS"))
+        self.service_account_path: Path = self._resolve_service_account_path()
         self.log_level: str = os.getenv("LOG_LEVEL", "INFO")
+
+    def _resolve_service_account_path(self) -> Path:
+        """Путь к ключу: из файла (GOOGLE_APPLICATION_CREDENTIALS) или из JSON в переменной (для Railway)."""
+        json_content = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+        if json_content:
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False, encoding="utf-8"
+            )
+            tmp.write(json_content)
+            tmp.close()
+            logger.info("Ключ Google взят из переменной GOOGLE_SERVICE_ACCOUNT_JSON")
+            return Path(tmp.name)
+        return Path(self._require("GOOGLE_APPLICATION_CREDENTIALS"))
 
     @staticmethod
     def _require(name: str) -> str:
