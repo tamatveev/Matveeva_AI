@@ -26,13 +26,8 @@ class Config:
         self.service_account_path: Path = self._resolve_service_account_path()
         self.log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
-        # Уведомления при сохранении заявки (опционально)
+        # Уведомление о заявке в Telegram (опционально)
         self.telegram_notify_chat_id: int | None = self._optional_int("TELEGRAM_NOTIFY_CHAT_ID")
-        self.smtp_host: str | None = self._optional("SMTP_HOST")
-        self.smtp_port: int | None = self._optional_int("SMTP_PORT")
-        self.smtp_user: str | None = self._optional("SMTP_USER")
-        self.smtp_password: str | None = self._optional("SMTP_PASSWORD")
-        self.notify_email: str | None = self._optional("NOTIFY_EMAIL")
 
     def _resolve_service_account_path(self) -> Path:
         """Путь к ключу: из файла (GOOGLE_APPLICATION_CREDENTIALS) или из JSON в переменной (для Railway)."""
@@ -53,11 +48,6 @@ class Config:
         if not value:
             raise RuntimeError(f"Переменная окружения {name} не задана")
         return value
-
-    @staticmethod
-    def _optional(name: str) -> str | None:
-        value = os.getenv(name)
-        return (value or "").strip() or None
 
     @staticmethod
     def _optional_int(name: str) -> int | None:

@@ -12,7 +12,6 @@ from aiogram.types import (
 )
 
 from bot.config import Config
-from bot.email_notifier import EmailNotifier
 from bot.llm_client import LLMClient
 from bot.order_writer import OrderWriter
 from bot.prompt import Prompt
@@ -32,13 +31,12 @@ class Handler:
     def __init__(
         self, config: Config, llm_client: LLMClient,
         prompt: Prompt, sheets_client: SheetsClient,
-        order_writer: OrderWriter, email_notifier: EmailNotifier,
+        order_writer: OrderWriter,
     ) -> None:
         self._llm_client = llm_client
         self._prompt = prompt
         self._sheets_client = sheets_client
         self._order_writer = order_writer
-        self._email_notifier = email_notifier
         self._notify_chat_id = config.telegram_notify_chat_id
         self._best_example_url = config.best_example_url
         self._max_history = config.max_history_messages
@@ -186,7 +184,6 @@ class Handler:
                 await target.bot.send_message(self._notify_chat_id, text)
             except Exception:
                 logger.exception("chat_id=%s — ошибка отправки уведомления в Telegram", target.chat.id)
-        self._email_notifier.notify(client_name, email, service, comment)
 
     async def _send_examples(self, target: types.Message, drive_url: str) -> None:
         description, images = self._sheets_client.download_examples(drive_url)

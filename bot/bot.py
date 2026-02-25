@@ -3,7 +3,6 @@ import logging
 from aiogram import Bot as AiogramBot, Dispatcher
 
 from bot.config import Config
-from bot.email_notifier import EmailNotifier
 from bot.handler import GREETING, Handler
 from bot.llm_client import LLMClient
 from bot.order_writer import OrderWriter
@@ -29,8 +28,7 @@ class Bot:
         self._sheets_client = sheets_client
 
         order_writer = OrderWriter(config)
-        email_notifier = EmailNotifier(config)
-        handler = Handler(config, llm_client, prompt, sheets_client, order_writer, email_notifier)
+        handler = Handler(config, llm_client, prompt, sheets_client, order_writer)
         handler.register(self._dp)
 
     async def start(self) -> None:
