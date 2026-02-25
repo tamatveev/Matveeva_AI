@@ -1,0 +1,8 @@
+.env
+service_account.json
+.git
+__pycache__
+.venv
+*.pyc
+doc
+*.md
