@@ -26,6 +26,9 @@ class Config:
         self.service_account_path: Path = self._resolve_service_account_path()
         self.log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
+        # Картинка к приветствию при /start (опционально): ссылка на Google Drive
+        self.greeting_image_url: str | None = os.getenv("GREETING_IMAGE_URL") or None
+
         # Уведомление о заявке в Telegram (опционально)
         self.telegram_notify_chat_id: int | None = self._optional_int("TELEGRAM_NOTIFY_CHAT_ID")
 

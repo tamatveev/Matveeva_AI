@@ -19,7 +19,10 @@ from bot.sheets_client import SheetsClient
 
 logger = logging.getLogger(__name__)
 
-GREETING = "Привет! Я бот-ассистент нейро-фотографа Анастасии Матвеевой. Добро пожаловать ко мне в гости!"
+GREETING = """Привет!
+
+Это умный бот нейро-креатора Анастасии Матвеевой.
+Здесь можно ознакомиться со всеми услугами, ценами или обсудить свой уникальный проект."""
 
 _BUTTONS_RE = re.compile(r"\[buttons]\s*\n(.*?)\n\s*\[/buttons]", re.DOTALL)
 _ORDER_RE = re.compile(r"\[order]\s*\n(.*?)\n\s*\[/order]", re.DOTALL)
@@ -39,6 +42,7 @@ class Handler:
         self._order_writer = order_writer
         self._notify_chat_id = config.telegram_notify_chat_id
         self._best_example_url = config.best_example_url
+        self._greeting_image_url = config.greeting_image_url
         self._max_history = config.max_history_messages
         self._histories: dict[int, list[dict[str, str]]] = {}
         self._button_map: dict[str, str] = {}
@@ -52,6 +56,13 @@ class Handler:
         chat_id = message.chat.id
         logger.info("chat_id=%s — /start", chat_id)
         self._histories.pop(chat_id, None)
+
+        if self._greeting_image_url:
+            _, images = self._sheets_client.download_examples(self._greeting_image_url)
+            if images:
+                photo = BufferedInputFile(images[0], filename="greeting.jpg")
+                await message.answer_photo(photo, caption=GREETING)
+
         await self._handle_user_text(chat_id, "Начать", message)
 
     async def _on_message(self, message: types.Message) -> None:
@@ -216,7 +227,7 @@ class Handler:
         ]
         await target.answer_media_group(media)
         if caption_keyboard:
-            await target.answer("👇", reply_markup=caption_keyboard)
+            await target.answer("Что делаем дальше?", reply_markup=caption_keyboard)
 
     async def _caption_from_description(self, chat_id: int, description: str) -> str | None:
         """Подпись к примерам: тот же запрос к LLM, что и в диалоге (системный промпт + история), плюс описание примера из Google Doc."""
