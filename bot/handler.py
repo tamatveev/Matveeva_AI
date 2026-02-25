@@ -19,7 +19,7 @@ from bot.sheets_client import SheetsClient
 
 logger = logging.getLogger(__name__)
 
-GREETING = "Привет! Я бот-ассистент нейро-фотографа Анастасии Матвеевой. Чем могу помочь?"
+GREETING = "Привет! Я бот-ассистент нейро-фотографа Анастасии Матвеевой. Добро пожаловать к мне в гости!"
 
 _BUTTONS_RE = re.compile(r"\[buttons]\s*\n(.*?)\n\s*\[/buttons]", re.DOTALL)
 _ORDER_RE = re.compile(r"\[order]\s*\n(.*?)\n\s*\[/order]", re.DOTALL)
@@ -51,7 +51,7 @@ class Handler:
         chat_id = message.chat.id
         logger.info("chat_id=%s — /start", chat_id)
         self._histories.pop(chat_id, None)
-        await message.answer(GREETING)
+        await self._handle_user_text(chat_id, "Начать", message)
 
     async def _on_message(self, message: types.Message) -> None:
         if not message.text:

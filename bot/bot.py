@@ -3,7 +3,7 @@ import logging
 from aiogram import Bot as AiogramBot, Dispatcher
 
 from bot.config import Config
-from bot.handler import Handler
+from bot.handler import GREETING, Handler
 from bot.llm_client import LLMClient
 from bot.order_writer import OrderWriter
 from bot.prompt import Prompt
@@ -34,6 +34,7 @@ class Bot:
     async def start(self) -> None:
         logger.info("Бот запускается...")
         try:
+            await self._bot.set_my_description(description=GREETING)
             await self._dp.start_polling(self._bot)
         finally:
             await self._bot.session.close()
