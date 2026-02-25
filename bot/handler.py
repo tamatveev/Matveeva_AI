@@ -70,15 +70,13 @@ class Handler:
             logger.info("chat_id=%s — запрос лучшего примера", chat_id)
             await callback.message.answer("👆 Примеры работ")
             await self._send_examples(callback.message, self._best_example_url)
-            await self._handle_user_text(chat_id, "Примеры работ", callback.message)
             return
 
         if raw.startswith(_EXAMPLE_PREFIX):
             drive_url = raw[len(_EXAMPLE_PREFIX):]
-            logger.info("chat_id=%s — запрос примеров", chat_id)
-            await callback.message.answer("👆 Показать примеры работ")
+            logger.info("chat_id=%s — запрос примера по услуге", chat_id)
+            await callback.message.answer("👆 Показать пример")
             await self._send_examples(callback.message, drive_url)
-            await self._handle_user_text(chat_id, "Показать примеры работ", callback.message)
             return
 
         logger.info("chat_id=%s — кнопка: %s", chat_id, raw)
@@ -101,11 +99,12 @@ class Handler:
 
         await self._try_save_order(answer, target)
         clean_answer = _ORDER_RE.sub("", answer).strip()
-        body, keyboard = self._parse_buttons(clean_answer)
-        keyboard = self._maybe_add_example_button(keyboard, text)
+        body, keyboard = self._parse_buttons(clean_answer, text)
         await target.answer(body, reply_markup=keyboard)
 
-    def _parse_buttons(self, text: str) -> tuple[str, InlineKeyboardMarkup | None]:
+    def _parse_buttons(
+        self, text: str, user_text: str,
+    ) -> tuple[str, InlineKeyboardMarkup | None]:
         match = _BUTTONS_RE.search(text)
         if not match:
             return text, None
@@ -118,31 +117,26 @@ class Handler:
         buttons: list[list[InlineKeyboardButton]] = []
         for label in lines:
             key = uuid.uuid4().hex[:12]
-            if label.lower().strip() in ("примеры работ", "посмотреть примеры работ"):
+            label_lower = label.lower().strip()
+            if label_lower in ("примеры работ", "посмотреть примеры работ"):
                 self._button_map[key] = _BEST_EXAMPLE
                 buttons.append([InlineKeyboardButton(text=f"📸 {label}", callback_data=key)])
+            elif label_lower == "показать пример":
+                url = self._sheets_client.find_example_url(user_text)
+                if url:
+                    self._button_map[key] = f"{_EXAMPLE_PREFIX}{url}"
+                    buttons.append([
+                        InlineKeyboardButton(text="📸 Показать пример", callback_data=key),
+                    ])
+                else:
+                    self._button_map[key] = label
+                    buttons.append([InlineKeyboardButton(text=label, callback_data=key)])
             else:
                 self._button_map[key] = label
                 buttons.append([InlineKeyboardButton(text=label, callback_data=key)])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
         return body or text, keyboard
-
-    def _maybe_add_example_button(
-        self, keyboard: InlineKeyboardMarkup | None, user_text: str,
-    ) -> InlineKeyboardMarkup | None:
-        url = self._sheets_client.find_example_url(user_text)
-        if not url:
-            return keyboard
-
-        key = uuid.uuid4().hex[:12]
-        self._button_map[key] = f"{_EXAMPLE_PREFIX}{url}"
-        example_btn = [InlineKeyboardButton(text="📸 Показать примеры работ", callback_data=key)]
-
-        if keyboard:
-            keyboard.inline_keyboard.append(example_btn)
-            return keyboard
-        return InlineKeyboardMarkup(inline_keyboard=[example_btn])
 
     async def _try_save_order(self, answer: str, target: types.Message) -> None:
         match = _ORDER_RE.search(answer)
@@ -186,25 +180,55 @@ class Handler:
                 logger.exception("chat_id=%s — ошибка отправки уведомления в Telegram", target.chat.id)
 
     async def _send_examples(self, target: types.Message, drive_url: str) -> None:
-        description, images = self._sheets_client.download_examples(drive_url)
-        if not description and not images:
+        raw_description, images = self._sheets_client.download_examples(drive_url)
+        if not raw_description and not images:
             await target.answer("К сожалению, не удалось загрузить примеры.")
             return
-        if not images and description:
-            await target.answer(description)
+        caption_text: str | None = None
+        caption_keyboard: InlineKeyboardMarkup | None = None
+        if raw_description and images:
+            caption_raw = await self._caption_from_description(target.chat.id, raw_description)
+            if caption_raw:
+                history = self._histories.get(target.chat.id, [])
+                last_user = next(
+                    (m["content"] for m in reversed(history) if m["role"] == "user"),
+                    "",
+                )
+                caption_text, caption_keyboard = self._parse_buttons(caption_raw, last_user)
+                caption_text = caption_text.strip() or None
+            if not caption_text:
+                caption_text = raw_description.strip() or None
+        elif raw_description and not images:
+            await target.answer(raw_description)
             return
         if len(images) == 1:
             photo = BufferedInputFile(images[0], filename="example.jpg")
-            await target.answer_photo(photo, caption=description or None)
+            await target.answer_photo(
+                photo, caption=caption_text, reply_markup=caption_keyboard
+            )
             return
         media = [
             InputMediaPhoto(
                 media=BufferedInputFile(data, filename=f"example_{i}.jpg"),
-                caption=description if i == 0 else None,
+                caption=caption_text if i == 0 else None,
             )
             for i, data in enumerate(images)
         ]
         await target.answer_media_group(media)
+        if caption_keyboard:
+            await target.answer("👇", reply_markup=caption_keyboard)
+
+    async def _caption_from_description(self, chat_id: int, description: str) -> str | None:
+        """Подпись к примерам: тот же запрос к LLM, что и в диалоге (системный промпт + история), плюс описание примера из Google Doc."""
+        history = self._histories.get(chat_id, [])
+        messages = self._prompt.build(history)
+        messages.append({"role": "user", "content": description.strip()})
+        try:
+            text = await self._llm_client.complete(messages)
+            return text.strip() if text else None
+        except Exception:
+            logger.exception("Ошибка генерации подписи к примеру")
+            return None
 
     def _trim_history(self, chat_id: int) -> None:
         history = self._histories.get(chat_id)
