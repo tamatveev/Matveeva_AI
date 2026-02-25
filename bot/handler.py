@@ -12,6 +12,7 @@ from aiogram.types import (
 )
 
 from bot.config import Config
+from bot.email_notifier import EmailNotifier
 from bot.llm_client import LLMClient
 from bot.order_writer import OrderWriter
 from bot.prompt import Prompt
@@ -19,7 +20,7 @@ from bot.sheets_client import SheetsClient
 
 logger = logging.getLogger(__name__)
 
-GREETING = "Привет! Я бот-ассистент нейро-фотографа Анастасии Матвеевой. Добро пожаловать к мне в гости!"
+GREETING = "Привет! Я бот-ассистент нейро-фотографа Анастасии Матвеевой. Добро пожаловать ко мне в гости!"
 
 _BUTTONS_RE = re.compile(r"\[buttons]\s*\n(.*?)\n\s*\[/buttons]", re.DOTALL)
 _ORDER_RE = re.compile(r"\[order]\s*\n(.*?)\n\s*\[/order]", re.DOTALL)
@@ -31,12 +32,14 @@ class Handler:
     def __init__(
         self, config: Config, llm_client: LLMClient,
         prompt: Prompt, sheets_client: SheetsClient,
-        order_writer: OrderWriter,
+        order_writer: OrderWriter, email_notifier: EmailNotifier,
     ) -> None:
         self._llm_client = llm_client
         self._prompt = prompt
         self._sheets_client = sheets_client
         self._order_writer = order_writer
+        self._email_notifier = email_notifier
+        self._notify_chat_id = config.telegram_notify_chat_id
         self._best_example_url = config.best_example_url
         self._max_history = config.max_history_messages
         self._histories: dict[int, list[dict[str, str]]] = {}
@@ -167,6 +170,23 @@ class Handler:
         except Exception:
             logger.exception("chat_id=%s — ошибка записи заявки", target.chat.id)
             await target.answer("Произошла ошибка при сохранении заявки. Попробуйте позже.")
+            return
+
+        # Уведомления: только логируем ошибки, не показываем пользователю
+        if self._notify_chat_id:
+            try:
+                text = (
+                    f"Новая заявка\n\n"
+                    f"Имя: {client_name}\n"
+                    f"Почта: {email}\n"
+                    f"Услуга: {service}\n"
+                    f"Комментарий: {comment or '—'}\n"
+                    f"Telegram: @{telegram_id or '—'} (chat_id: {chat_id})"
+                )
+                await target.bot.send_message(self._notify_chat_id, text)
+            except Exception:
+                logger.exception("chat_id=%s — ошибка отправки уведомления в Telegram", target.chat.id)
+        self._email_notifier.notify(client_name, email, service, comment)
 
     async def _send_examples(self, target: types.Message, drive_url: str) -> None:
         description, images = self._sheets_client.download_examples(drive_url)

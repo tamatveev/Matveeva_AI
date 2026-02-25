@@ -32,6 +32,8 @@ Railway подхватывает проект по GitHub, собирает об
 | `BEST_EXAMPLE_URL` | Ссылка на пример (если используется) |
 | `LOG_LEVEL` | По желанию, например `INFO` |
 
+**Уведомления о заявках (опционально):** если нужны уведомления в Telegram и/или по почте при сохранении заявки — добавь `TELEGRAM_NOTIFY_CHAT_ID` и/или `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `NOTIFY_EMAIL`. Подробнее в `.env.example` и `doc/vision.md`.
+
 **Ключ Google (сервисный аккаунт):**
 
 На Railway нельзя загрузить файл. Нужно передать содержимое `service_account.json` одной переменной:
