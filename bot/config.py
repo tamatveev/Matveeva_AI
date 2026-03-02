@@ -16,7 +16,11 @@ class Config:
         load_dotenv(_ENV_PATH)
 
         self.telegram_bot_token: str = self._require("TELEGRAM_BOT_TOKEN")
-        self.openrouter_api_key: str = self._require("OPENROUTER_API_KEY")
+        # Ключ OpenAI (при использовании OpenAI напрямую) или OpenRouter
+        self.openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
+        self.openrouter_api_key: str | None = os.getenv("OPENROUTER_API_KEY")
+        if not self.openai_api_key and not self.openrouter_api_key:
+            raise RuntimeError("Задайте OPENAI_API_KEY или OPENROUTER_API_KEY в .env")
         self.llm_model: str = self._require("LLM_MODEL")
         self.max_history_messages: int = int(os.getenv("MAX_HISTORY_MESSAGES", "20"))
         self.google_sheets_services_url: str = self._require("GOOGLE_SHEETS_SERVICES_URL")
