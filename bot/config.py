@@ -33,6 +33,10 @@ class Config:
         # Картинка к приветствию при /start (опционально): ссылка на Google Drive
         self.greeting_image_url: str | None = os.getenv("GREETING_IMAGE_URL") or None
 
+        # PDF для согласия перед заявкой (ссылки на Google Drive; если не заданы — шаг согласия пропускается)
+        self.consent_data_processing_pdf_url: str | None = os.getenv("CONSENT_DATA_PROCESSING_PDF_URL") or None
+        self.consent_advertising_pdf_url: str | None = os.getenv("CONSENT_ADVERTISING_PDF_URL") or None
+
         # Уведомление о заявке в Telegram (опционально)
         self.telegram_notify_chat_id: int | None = self._optional_int("TELEGRAM_NOTIFY_CHAT_ID")
 

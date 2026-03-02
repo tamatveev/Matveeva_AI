@@ -28,6 +28,16 @@ _BUTTONS_RE = re.compile(r"\[buttons]\s*\n(.*?)\n\s*\[/buttons]", re.DOTALL)
 _ORDER_RE = re.compile(r"\[order]\s*\n(.*?)\n\s*\[/order]", re.DOTALL)
 _EXAMPLE_PREFIX = "example:"
 _BEST_EXAMPLE = "best_example"
+_CONSENT_AGREE = "_consent_agree"
+_CONSENT_DECLINE = "_consent_decline"
+
+_ORDER_INTENT_KEYWORDS = (
+    "оставить заявку",
+    "оформить заявку",
+    "оформление заявки",
+    "хочу заявку",
+    "оставить заявку на услугу",
+)
 
 
 class Handler:
@@ -43,9 +53,13 @@ class Handler:
         self._notify_chat_id = config.telegram_notify_chat_id
         self._best_example_url = config.best_example_url
         self._greeting_image_url = config.greeting_image_url
+        self._consent_data_pdf_url = config.consent_data_processing_pdf_url
+        self._consent_advertising_pdf_url = config.consent_advertising_pdf_url
         self._max_history = config.max_history_messages
         self._histories: dict[int, list[dict[str, str]]] = {}
         self._button_map: dict[str, str] = {}
+        self._consent_given: dict[int, bool] = {}
+        self._pending_consent_text: dict[int, str] = {}
 
     def register(self, dp: Dispatcher) -> None:
         dp.message.register(self._on_start, CommandStart())
@@ -56,6 +70,8 @@ class Handler:
         chat_id = message.chat.id
         logger.info("chat_id=%s — /start", chat_id)
         self._histories.pop(chat_id, None)
+        self._consent_given.pop(chat_id, None)
+        self._pending_consent_text.pop(chat_id, None)
 
         greeting_photo: bytes | None = None
         if self._greeting_image_url:
@@ -79,6 +95,13 @@ class Handler:
         chat_id = callback.message.chat.id
         await callback.answer()
 
+        if raw == _CONSENT_AGREE:
+            await self._on_consent_agree(callback.message)
+            return
+        if raw == _CONSENT_DECLINE:
+            await self._on_consent_decline(callback.message)
+            return
+
         if raw == _BEST_EXAMPLE:
             logger.info("chat_id=%s — запрос лучшего примера", chat_id)
             await callback.message.answer("👆 Примеры работ")
@@ -96,6 +119,12 @@ class Handler:
         await callback.message.answer(f"👆 {raw}")
         await self._handle_user_text(chat_id, raw, callback.message)
 
+    def _is_order_intent(self, text: str) -> bool:
+        t = text.lower().strip()
+        if t == "заявка":
+            return True
+        return any(kw in t for kw in _ORDER_INTENT_KEYWORDS)
+
     async def _handle_user_text(
         self,
         chat_id: int,
@@ -105,6 +134,16 @@ class Handler:
         first_message_photo: bytes | None = None,
     ) -> None:
         logger.info("chat_id=%s — сообщение: %s", chat_id, text[:50])
+
+        if (
+            self._consent_data_pdf_url
+            and self._consent_advertising_pdf_url
+            and self._is_order_intent(text)
+            and not self._consent_given.get(chat_id)
+        ):
+            self._pending_consent_text[chat_id] = text
+            await self._send_consent_request(target)
+            return
 
         history = self._histories.setdefault(chat_id, [])
         history.append({"role": "user", "content": text})
@@ -201,6 +240,66 @@ class Handler:
                 await target.bot.send_message(self._notify_chat_id, text)
             except Exception:
                 logger.exception("chat_id=%s — ошибка отправки уведомления в Telegram", target.chat.id)
+
+    async def _send_consent_request(self, target: types.Message) -> None:
+        chat_id = target.chat.id
+        _, parts1 = self._sheets_client.download_examples(self._consent_data_pdf_url)
+        _, parts2 = self._sheets_client.download_examples(self._consent_advertising_pdf_url)
+        pdf1 = parts1[0] if parts1 else None
+        pdf2 = parts2[0] if parts2 else None
+        if not pdf1 or not pdf2:
+            logger.warning("chat_id=%s — не удалось загрузить PDF согласия", chat_id)
+            self._pending_consent_text.pop(chat_id, None)
+            await target.answer(
+                "Не удалось загрузить документы для ознакомления. Попробуйте позже."
+            )
+            return
+
+        await target.answer_document(
+            BufferedInputFile(pdf1, filename="soglasie_obrabotka_dannyh.pdf"),
+            caption="Согласие на обработку персональных данных",
+        )
+        await target.answer_document(
+            BufferedInputFile(pdf2, filename="soglasie_rassylka.pdf"),
+            caption="Согласие на рассылку рекламных материалов",
+        )
+
+        key_agree = uuid.uuid4().hex[:12]
+        key_decline = uuid.uuid4().hex[:12]
+        self._button_map[key_agree] = _CONSENT_AGREE
+        self._button_map[key_decline] = _CONSENT_DECLINE
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="Согласен", callback_data=key_agree),
+                    InlineKeyboardButton(text="Не согласен", callback_data=key_decline),
+                ],
+            ]
+        )
+        await target.answer(
+            "Просим ознакомиться с документами выше и дать согласие на обработку "
+            "персональных данных и на рассылку рекламных материалов.",
+            reply_markup=keyboard,
+        )
+        logger.info("chat_id=%s — отправлены PDF согласия, ожидание ответа", chat_id)
+
+    async def _on_consent_agree(self, message: types.Message) -> None:
+        chat_id = message.chat.id
+        pending = self._pending_consent_text.pop(chat_id, "")
+        self._consent_given[chat_id] = True
+        logger.info("chat_id=%s — пользователь дал согласие", chat_id)
+        await message.answer("👆 Согласен")
+        if pending:
+            await self._handle_user_text(chat_id, pending, message)
+
+    async def _on_consent_decline(self, message: types.Message) -> None:
+        chat_id = message.chat.id
+        self._pending_consent_text.pop(chat_id, None)
+        logger.info("chat_id=%s — пользователь отказался от согласия", chat_id)
+        await message.answer(
+            "Хорошо. Без согласия мы не можем принять заявку. "
+            "Если решите оформить заявку позже — нажмите «Оставить заявку»."
+        )
 
     async def _send_examples(self, target: types.Message, drive_url: str) -> None:
         raw_description, images = self._sheets_client.download_examples(drive_url)
