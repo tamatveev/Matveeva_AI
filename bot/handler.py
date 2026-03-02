@@ -57,13 +57,15 @@ class Handler:
         logger.info("chat_id=%s — /start", chat_id)
         self._histories.pop(chat_id, None)
 
+        greeting_photo: bytes | None = None
         if self._greeting_image_url:
             _, images = self._sheets_client.download_examples(self._greeting_image_url)
             if images:
-                photo = BufferedInputFile(images[0], filename="greeting.jpg")
-                await message.answer_photo(photo, caption=GREETING)
+                greeting_photo = images[0]
 
-        await self._handle_user_text(chat_id, "Начать", message)
+        await self._handle_user_text(
+            chat_id, "Начать", message, first_message_photo=greeting_photo,
+        )
 
     async def _on_message(self, message: types.Message) -> None:
         if not message.text:
@@ -95,7 +97,12 @@ class Handler:
         await self._handle_user_text(chat_id, raw, callback.message)
 
     async def _handle_user_text(
-        self, chat_id: int, text: str, target: types.Message,
+        self,
+        chat_id: int,
+        text: str,
+        target: types.Message,
+        *,
+        first_message_photo: bytes | None = None,
     ) -> None:
         logger.info("chat_id=%s — сообщение: %s", chat_id, text[:50])
 
@@ -111,7 +118,12 @@ class Handler:
         await self._try_save_order(answer, target)
         clean_answer = _ORDER_RE.sub("", answer).strip()
         body, keyboard = self._parse_buttons(clean_answer, text)
-        await target.answer(body, reply_markup=keyboard)
+
+        if first_message_photo is not None:
+            photo = BufferedInputFile(first_message_photo, filename="greeting.jpg")
+            await target.answer_photo(photo, caption=body, reply_markup=keyboard)
+        else:
+            await target.answer(body, reply_markup=keyboard)
 
     def _parse_buttons(
         self, text: str, user_text: str,
